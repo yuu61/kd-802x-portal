@@ -71,7 +71,7 @@ sequenceDiagram
     CI->>CI: build / format / vuln / lint (再実行)
     CI->>GHCR: docker buildx push ghcr.io/yuu61/kd-802x-portal:<sha>,latest
     GH->>SHR: dispatch deploy job (self-hosted label)
-    SHR->>SHR: actions/checkout@v4 ref=<sha>
+    SHR->>SHR: actions/checkout@v6 ref=<sha>
     SHR->>SHR: PREVIOUS_TAG を取得
     SHR->>Portal: IMAGE_TAG=<sha> docker compose pull && up -d
     SHR->>Portal: curl /healthz でヘルスチェック
@@ -129,16 +129,16 @@ on:
 
 ### 6.3 キャッシュ
 
-- NuGet パッケージ: `actions/cache@v4` で `~/.nuget/packages`
+- NuGet パッケージ: `actions/cache@v5` で `~/.nuget/packages`
 - Docker buildx: `type=gha,mode=max`
 
 ## 7. CD ジョブ群
 
 ### 7.1 `cd-build-and-push` (GitHub-hosted)
 
-1. `actions/checkout@v4`
+1. `actions/checkout@v6`
 2. `docker/login-action@v3` で GHCR にログイン (`GITHUB_TOKEN` を使用)
-3. `docker/setup-buildx-action@v3`
+3. `docker/setup-buildx-action@v4`
 4. `docker/build-push-action@v6`:
    - `context: .`
    - `file: deploy/Dockerfile`
@@ -160,7 +160,7 @@ cd-deploy:
     name: production
     url: https://<ポータル公開 URL>/
   steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         ref: ${{ github.sha }}    # docker-compose.yml と IMAGE_TAG を同一 SHA で揃える
 
@@ -328,7 +328,7 @@ jobs:
     environment:
       name: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.target_sha }}
       - name: ロールバック

@@ -2,12 +2,14 @@ using System.Security.Cryptography;
 using System.Text;
 using kd_802x_portal.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace kd_802x_portal.Services;
 
 public sealed class RadiusAuthenticator(
     AppDbContext db,
-    IPasswordCryptoService passwordCrypto) : IRadiusAuthenticator
+    IPasswordCryptoService passwordCrypto,
+    ILogger<RadiusAuthenticator> logger) : IRadiusAuthenticator
 {
     public async Task<bool> AuthenticateAsync(string username, string password, CancellationToken ct = default)
     {
@@ -30,8 +32,10 @@ public sealed class RadiusAuthenticator(
         {
             plaintext = await passwordCrypto.DecryptAsync(user.Password.Ciphertext, ct);
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Vault 接続失敗や復号失敗時は認証失敗扱い。OperationCanceledException は呼び出し側へ伝播させる。
+            logger.LogWarning(ex, "パスワード復号に失敗 (username={Username})", normalized);
             return false;
         }
 
