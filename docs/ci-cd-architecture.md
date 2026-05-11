@@ -139,7 +139,7 @@ on:
 1. `actions/checkout@v6`
 2. `docker/login-action@v3` で GHCR にログイン (`GITHUB_TOKEN` を使用)
 3. `docker/setup-buildx-action@v4`
-4. `docker/build-push-action@v6`:
+4. `docker/build-push-action@v7`:
    - `context: .`
    - `file: deploy/Dockerfile`
    - `push: true`

@@ -2,9 +2,9 @@ name: CI/CD
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
   push:
-    branches: [main]
+    branches: [master]
 
 # GHCR への push 権限は Phase 2 (cd-build-and-push) で使用予定。
 # CI フェーズでは読み込みのみで十分だが、後段の job 追加に備えて先に付けておく。
@@ -19,7 +19,7 @@ env:
 
 jobs:
   # ------------------------------------------------------------------
-  # CI ジョブ群 (PR / main push 双方でトリガー)
+  # CI ジョブ群 (PR / master push 双方でトリガー)
   # ------------------------------------------------------------------
 
   ci-dotnet-build:
@@ -103,7 +103,7 @@ jobs:
       - uses: docker/setup-buildx-action@v4
 
       - name: Build (cache only, push なし)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -129,7 +129,7 @@ jobs:
             | xargs -0 -r shellcheck --severity=warning
 
   # ------------------------------------------------------------------
-  # CD ジョブ群 (main への push 時のみ実行)
+  # CD ジョブ群 (master への push 時のみ実行)
   # docs/ci-cd-architecture.md §7 を参照
   # ------------------------------------------------------------------
 
@@ -137,7 +137,7 @@ jobs:
     name: GHCR build & push
     runs-on: ubuntu-latest
     # PR では実行しない (push 時のみ)。CI 全ジョブの success を待つ。
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs:
       - ci-dotnet-build
       - ci-dotnet-format
