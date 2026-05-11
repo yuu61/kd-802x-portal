@@ -1,0 +1,91 @@
+services:
+  portal:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: kd-802x-portal:dev
+    container_name: kd-802x-portal
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__Default: "Server=mariadb;Database=kd802x;User=portal;Password=${DB_PASSWORD}"
+      Authentication__Google__ClientId: "${GOOGLE_CLIENT_ID}"
+      Authentication__Google__ClientSecret: "${GOOGLE_CLIENT_SECRET}"
+      Authentication__Google__AllowedHostedDomain: "${ALLOWED_HOSTED_DOMAIN:-st.kobedenshi.co.jp}"
+      Authentication__Google__ReauthMaxAgeSeconds: "120"
+      Vault__Address: "http://vault:8200"
+      Vault__RoleId: "${VAULT_ROLE_ID}"
+      Vault__SecretId: "${VAULT_SECRET_ID}"
+      Vault__TransitKeyName: "kd-802x-portal-password"
+      Radius__SharedSecret: "${RADIUS_SHARED_SECRET}"
+      PasswordReveal__DisplayTimeoutSeconds: "30"
+      PasswordReveal__GrantLifetimeSeconds: "30"
+    ports:
+      - "8080:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      vault:
+        condition: service_started
+
+  mariadb:
+    image: mariadb:11
+    container_name: kd-802x-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
+      MARIADB_DATABASE: "kd802x"
+      MARIADB_USER: "portal"
+      MARIADB_PASSWORD: "${DB_PASSWORD}"
+    ports:
+      # ローカル開発で `dotnet run` から接続できるように公開。本番は内部限定にする。
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      retries: 6
+      start_period: 30s
+
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: kd-802x-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    ports:
+      - "8200:8200"
+    volumes:
+      - vault_data:/vault/data
+      - vault_init:/vault/init
+      - ./vault/vault.hcl:/vault/config/vault.hcl:ro
+      - ./vault/init-vault.sh:/usr/local/bin/init-vault.sh:ro
+      - ./vault/unseal.sh:/usr/local/bin/unseal.sh:ro
+    # 公式 docker-entrypoint.sh が `-config=/vault/config` を自動付与するため command は server のみ。
+    # ここで `-config=/vault/config/vault.hcl` を二重に渡すと vault.hcl が 2 回ロードされ、
+    # listener "tcp" が二重定義になって 0.0.0.0:8200 で bind 競合する。
+    command: ["server"]
+
+  freeradius:
+    image: freeradius/freeradius-server:3.2
+    container_name: kd-802x-freeradius
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    environment:
+      PORTAL_URL: "http://portal:8080"
+      PORTAL_TOKEN: "${RADIUS_SHARED_SECRET}"
+      WLC_SHARED_SECRET: "${WLC_SHARED_SECRET}"
+    volumes:
+      # ファイル単位で上書き (デフォルト raddb の他ファイルは温存)
+      - ./freeradius/raddb/mods-enabled/rest:/etc/raddb/mods-enabled/rest:ro
+      - ./freeradius/raddb/sites-enabled/inner-tunnel:/etc/raddb/sites-enabled/inner-tunnel:ro
+      - ./freeradius/raddb/clients.conf:/etc/raddb/clients.conf:ro
+    depends_on:
+      - portal
+
+volumes:
+  mariadb_data:
+  vault_data:
+  vault_init:

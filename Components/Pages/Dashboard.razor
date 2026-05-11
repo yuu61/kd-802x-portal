@@ -1,0 +1,159 @@
+@page "/dashboard"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using System.Security.Claims
+@using kd_802x_portal.Data
+@using kd_802x_portal.Data.Entities
+@using kd_802x_portal.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IUserAccountService UserAccount
+@inject IDecryptionGrantService GrantService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+<PageTitle>ダッシュボード</PageTitle>
+
+<h1>802.1x アカウント</h1>
+
+@if (_user is null)
+{
+    <p>アカウント情報を読み込んでいます…</p>
+}
+else
+{
+    <dl class="account">
+        <dt>ユーザー名 (学籍番号)</dt>
+        <dd><code>@_user.Username</code></dd>
+
+        <dt>外側 Identity (端末設定)</dt>
+        <dd><code>@_user.Username@@st.kobedenshi.co.jp</code></dd>
+
+        <dt>パスワード</dt>
+        <dd>
+            <code class="password" id="password-field">@(_displayedPassword ?? "********")</code>
+            <button type="button" class="btn-icon" @onclick="RequestReveal">👁 表示</button>
+        </dd>
+
+        <dt>SSID</dt>
+        <dd>WPA3-Enterprise (詳細: <NavLink href="/connect">接続手順</NavLink>)</dd>
+    </dl>
+
+    <div class="actions">
+        <button type="button" class="btn" @onclick="RequestRegenerate">パスワードを再生成</button>
+        <a class="btn-secondary" href="/oidc/signout">サインアウト</a>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="message" role="status">@_message</div>
+    }
+}
+
+@code {
+    private User? _user;
+    private string? _displayedPassword;
+    private string? _message;
+    private int _displayTimeoutSeconds = 30;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (int.TryParse(Config["PasswordReveal:DisplayTimeoutSeconds"], out var s))
+        {
+            _displayTimeoutSeconds = s;
+        }
+
+        var state = await AuthState.GetAuthenticationStateAsync();
+        var email = state.User.FindFirst(ClaimTypes.Email)?.Value;
+        if (string.IsNullOrEmpty(email))
+        {
+            Nav.NavigateTo("/oidc/signout", forceLoad: true);
+            return;
+        }
+        var normalizedEmail = User.NormalizeEmail(email);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _user = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == normalizedEmail);
+
+        var uri = new Uri(Nav.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var revealToken = query["reveal"];
+        var regenerateToken = query["regenerate"];
+        var reauthState = query["reauth"];
+
+        if (!string.IsNullOrEmpty(reauthState))
+        {
+            _message = reauthState switch
+            {
+                "stale" => "再認証の有効期限を過ぎました。もう一度操作してください。",
+                _ => "再認証に失敗しました。"
+            };
+        }
+
+        if (_user is null)
+        {
+            _message ??= "アカウントレコードが見つかりません。サインアウト後に再度ログインしてください。";
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(revealToken))
+        {
+            await JS.InvokeVoidAsync("history.replaceState", null, string.Empty, "/dashboard");
+            await HandleRevealAsync(revealToken);
+        }
+        else if (!string.IsNullOrEmpty(regenerateToken))
+        {
+            await JS.InvokeVoidAsync("history.replaceState", null, string.Empty, "/dashboard");
+            await HandleRegenerateAsync(regenerateToken);
+        }
+    }
+
+    private async Task HandleRevealAsync(string token)
+    {
+        if (_user is null || !GrantService.TryConsume(token, out var userId) || userId != _user.Id)
+        {
+            _message = "復号トークンが無効または期限切れです。";
+            return;
+        }
+        _displayedPassword = await UserAccount.RevealPasswordAsync(_user.Id);
+        if (_displayedPassword is null)
+        {
+            _message = "パスワードを取得できませんでした。";
+            return;
+        }
+        await JS.InvokeVoidAsync("kd802x.displayPassword", _displayedPassword, _displayTimeoutSeconds);
+        _ = ScheduleClearAsync();
+    }
+
+    private async Task HandleRegenerateAsync(string token)
+    {
+        if (_user is null || !GrantService.TryConsume(token, out var userId) || userId != _user.Id)
+        {
+            _message = "再生成トークンが無効または期限切れです。";
+            return;
+        }
+        _displayedPassword = await UserAccount.RegeneratePasswordAsync(_user.Id);
+        _message = "パスワードを再生成しました。既存の Wi-Fi セッションは維持されますが、次回再接続時に新パスワードの入力が必要です (端末の再起動・スリープ復帰・AP 移動・別端末接続が該当)。";
+        await JS.InvokeVoidAsync("kd802x.displayPassword", _displayedPassword, _displayTimeoutSeconds);
+        _ = ScheduleClearAsync();
+    }
+
+    private void RequestReveal()
+    {
+        Nav.NavigateTo("/oidc/challenge?action=reveal", forceLoad: true);
+    }
+
+    private void RequestRegenerate()
+    {
+        Nav.NavigateTo("/oidc/challenge?action=regenerate", forceLoad: true);
+    }
+
+    private async Task ScheduleClearAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(_displayTimeoutSeconds));
+        _displayedPassword = null;
+        await InvokeAsync(StateHasChanged);
+    }
+}

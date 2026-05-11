@@ -9,4 +9,12 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.*" />
+    <!-- Pomelo.EntityFrameworkCore.MySql は EF Core 10 対応版が未リリースのため 9.0 系を採用 (EF Core 関連も 9.x に揃える) -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.*" PrivateAssets="all" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.*" />
+    <PackageReference Include="VaultSharp" Version="1.17.*" />
+  </ItemGroup>
+
 </Project>

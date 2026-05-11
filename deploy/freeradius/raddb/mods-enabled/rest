@@ -1,0 +1,20 @@
+# rlm_rest: ポータルの内部認証 API を呼び出して PAP 検証
+rest {
+    tls {
+        check_cert = no
+        check_cert_cn = no
+    }
+    connect_uri = "${ENV[PORTAL_URL]}"
+    connect_timeout = 5.0
+
+    authenticate {
+        uri = "${..connect_uri}/api/internal/radius/authenticate"
+        method = "POST"
+        body = "json"
+        headers {
+            Authorization = "Bearer ${ENV[PORTAL_TOKEN]}"
+        }
+        data = '{ "username": "%{User-Name}", "password": "%{User-Password}" }'
+        tls = ${..tls}
+    }
+}

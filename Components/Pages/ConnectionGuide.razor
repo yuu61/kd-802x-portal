@@ -1,0 +1,42 @@
+@page "/connect"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>Wi-Fi 接続手順</PageTitle>
+
+<h1>Wi-Fi 接続手順</h1>
+
+<p>WPA3-Enterprise SSID への接続手順を OS 別に案内します。発行されたユーザー名 (学籍番号) と、ダッシュボードで表示したパスワードを使用してください。</p>
+
+<h2>iOS / iPadOS / macOS</h2>
+<ol>
+    <li>設定 / システム設定で対象 SSID を選択</li>
+    <li>ユーザー名: <code>学籍番号@@st.kobedenshi.co.jp</code></li>
+    <li>パスワード: ポータルで表示した文字列</li>
+    <li>サーバ証明書の信頼確認を承認 (PoC では自己署名のため、ルート CA を事前にインストール)</li>
+</ol>
+
+<h2>Android</h2>
+<ol>
+    <li>設定 → Wi-Fi で対象 SSID を選択</li>
+    <li>EAP 方式: TTLS、フェーズ 2 認証: PAP</li>
+    <li>CA 証明書: システムを使用 (検証端末にルート CA を事前インストール)</li>
+    <li>ユーザー名: <code>学籍番号@@st.kobedenshi.co.jp</code></li>
+    <li>パスワード: ポータルで表示した文字列</li>
+</ol>
+
+<h2>Windows 11</h2>
+<ol>
+    <li>ルート CA を「信頼されたルート証明機関」にインストール</li>
+    <li>設定 → ネットワークとインターネット → Wi-Fi → 既知のネットワークの管理 → ネットワークの追加</li>
+    <li>セキュリティ種類: WPA3-Enterprise AES</li>
+    <li>EAP の種類: EAP-TTLS / 認証方式: パスワード認証プロトコル (PAP)</li>
+    <li>GUI で PAP inner が選べない場合は、PoC 用 XML プロファイルを <code>netsh wlan add profile filename=&quot;...&quot;</code> で追加</li>
+</ol>
+
+<h2>パスワードの操作</h2>
+<ul>
+    <li><strong>表示</strong>: ダッシュボードの 👁 ボタンで Google 再認証を経て 30 秒間だけ表示。クリップボードにもコピーされ、30 秒後に自動でクリア試行</li>
+    <li><strong>再生成</strong>: 「パスワードを再生成」ボタンで新規発行。既存 Wi-Fi セッションは維持されるが、次回再接続時に新パスワードの入力が必要</li>
+</ul>
+
+<p><NavLink href="/dashboard">ダッシュボードへ戻る</NavLink></p>

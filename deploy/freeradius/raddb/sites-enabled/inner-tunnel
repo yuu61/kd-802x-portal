@@ -1,0 +1,33 @@
+# EAP-TTLS の内部認証 (TLS トンネル内 PAP) をポータルに委譲する仮想サーバ
+server inner-tunnel {
+    listen {
+        ipaddr = 127.0.0.1
+        port = 18120
+        type = auth
+    }
+
+    authorize {
+        # User-Name の realm 部 (@st.kobedenshi.co.jp) を suffix で剥がす
+        suffix
+
+        # ポータルに認証を委ねるため Auth-Type を強制
+        update control {
+            Auth-Type := rest
+        }
+    }
+
+    authenticate {
+        Auth-Type rest {
+            rest
+        }
+    }
+
+    post-auth {
+        # auth_goodpass / auth_badpass の出力を抑制
+        # (デフォルトの radiusd.conf の log セクション参照)
+
+        Post-Auth-Type REJECT {
+            attr_filter.access_reject
+        }
+    }
+}
