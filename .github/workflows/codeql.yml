@@ -1,0 +1,73 @@
+name: CodeQL
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+        branches: [master]
+
+# 同一ブランチで連続 push された場合、古い実行をキャンセル
+concurrency:
+    group: codeql-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    analyze:
+        name: Analyze (${{ matrix.language }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+
+        permissions:
+            # CodeQL の解析結果を Security タブにアップロードするため必須
+            security-events: write
+            # private パッケージ参照に備える
+            packages: read
+            # CodeQL action 自身が actions メタデータを読む
+            actions: read
+            contents: read
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - language: csharp
+                      build-mode: manual
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v5
+              with:
+                  # csproj の TargetFramework=net10.0 に合わせる
+                  dotnet-version: "10.0.x"
+
+            # NuGet キャッシュ (ci-cd.yml と同様の方針)
+            - name: Cache NuGet packages
+              uses: actions/cache@v5
+              with:
+                  path: ~/.nuget/packages
+                  key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+                  restore-keys: |
+                      ${{ runner.os }}-nuget-
+
+            - name: Initialize CodeQL
+              uses: github/codeql-action/init@v4
+              with:
+                  languages: ${{ matrix.language }}
+                  build-mode: ${{ matrix.build-mode }}
+                  # security-extended より厳しい security-and-quality を採用
+                  queries: security-and-quality
+
+            - name: Restore
+              run: dotnet restore
+
+            - name: Build
+              # CodeQL に解析対象のコンパイル成果物を観測させるため、no-incremental でフルビルド
+              run: dotnet build --no-restore -c Release /p:UseSharedCompilation=false /p:ContinuousIntegrationBuild=true
+
+            - name: Perform CodeQL Analysis
+              uses: github/codeql-action/analyze@v4
+              with:
+                  category: "/language:${{ matrix.language }}"

@@ -1,9 +1,11 @@
 services:
   portal:
+    # CD は GHCR からの pull (IMAGE_TAG=<git-sha> を CI/CD から渡す)。
+    # ローカル開発は `docker compose build portal` でローカルイメージに同じタグを付ける。
+    image: ghcr.io/yuu61/kd-802x-portal:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: kd-802x-portal:dev
     container_name: kd-802x-portal
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"

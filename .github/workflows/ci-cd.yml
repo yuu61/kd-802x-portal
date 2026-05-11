@@ -1,0 +1,176 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# GHCR への push 権限は Phase 2 (cd-build-and-push) で使用予定。
+# CI フェーズでは読み込みのみで十分だが、後段の job 追加に備えて先に付けておく。
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  PROJECT: kd-802x-portal.csproj
+  IMAGE_NAME: ghcr.io/yuu61/kd-802x-portal
+
+jobs:
+  # ------------------------------------------------------------------
+  # CI ジョブ群 (PR / main push 双方でトリガー)
+  # ------------------------------------------------------------------
+
+  ci-dotnet-build:
+    name: .NET build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
+
+      - name: Build
+        run: dotnet build ${{ env.PROJECT }} --no-restore -c Release
+
+  ci-dotnet-format:
+    name: .NET format check
+    runs-on: ubuntu-latest
+    # PoC 初回は警告のみ。`.editorconfig` を整備し、コードが安定したら厳格化 (continue-on-error 削除)。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Format check
+        run: dotnet format ${{ env.PROJECT }} --verify-no-changes --severity warn
+
+  ci-dotnet-vuln:
+    name: .NET vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
+
+      - name: Detect vulnerable packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT=$(dotnet list ${{ env.PROJECT }} package --vulnerable --include-transitive 2>&1)
+          echo "$OUTPUT"
+          # 検出行の先頭 `>` で fail 判定 (脆弱性なし時は本文に `>` が現れない)
+          if echo "$OUTPUT" | grep -E '^\s*>' > /dev/null; then
+            echo "::error::脆弱な NuGet パッケージが検出されました"
+            exit 1
+          fi
+
+  ci-docker-build:
+    name: Docker build (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build (cache only, push なし)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  ci-shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Run shellcheck (warning 以上を fail に)
+        shell: bash
+        run: |
+          set -euo pipefail
+          find deploy -type f -name '*.sh' -print0 \
+            | xargs -0 -r shellcheck --severity=warning
+
+  # ------------------------------------------------------------------
+  # CD ジョブ群 (main への push 時のみ実行)
+  # docs/ci-cd-architecture.md §7 を参照
+  # ------------------------------------------------------------------
+
+  cd-build-and-push:
+    name: GHCR build & push
+    runs-on: ubuntu-latest
+    # PR では実行しない (push 時のみ)。CI 全ジョブの success を待つ。
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - ci-dotnet-build
+      - ci-dotnet-format
+      - ci-dotnet-vuln
+      - ci-docker-build
+      - ci-shellcheck
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: GHCR login
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build & push to GHCR
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          # CI の ci-docker-build で温まった buildx cache を再利用
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+
+  # ------------------------------------------------------------------
+  # Phase 4 で追加予定: cd-deploy (self-hosted runner で docker compose pull && up)
+  # docs/ci-cd-architecture.md §7.2 を参照
+  # ------------------------------------------------------------------

@@ -120,6 +120,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
+// PoC 用の liveness probe。Vault / DB の接続確認は含めず即時 200 を返す (本番で readiness と分離検討)。
+app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }))
+    .AllowAnonymous();
+
 app.MapStaticAssets();
 app.MapControllers();
 app.MapRazorComponents<App>()
